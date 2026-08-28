@@ -82,7 +82,7 @@ def load_settings() -> Settings:
         stats_season=int(stats_season_raw) if stats_season_raw else None,
         week=int(week_raw) if week_raw else None,
         gmail_address=(os.getenv("GMAIL_ADDRESS") or "").strip(),
-        gmail_app_password=(os.getenv("GMAIL_APP_PASSWORD") or "").strip(),
+        gmail_app_password="".join((os.getenv("GMAIL_APP_PASSWORD") or "").split()),
         email_to=(os.getenv("EMAIL_TO") or os.getenv("GMAIL_ADDRESS") or "").strip(),
         email_enabled=os.getenv("EMAIL_ENABLED", "0").strip() in ("1", "true", "True"),
         leagues=leagues,
