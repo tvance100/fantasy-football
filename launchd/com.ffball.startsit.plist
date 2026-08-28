@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Install:
+    cp launchd/com.ffball.startsit.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.ffball.startsit.plist
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.ffball.startsit.plist
+    rm ~/Library/LaunchAgents/com.ffball.startsit.plist
+
+  Replace __HOME__ below with your home path (echo $HOME) before installing,
+  or run:  sed -i '' "s|__HOME__|$HOME|g" ~/Library/LaunchAgents/com.ffball.startsit.plist
+
+  Runs every 10 minutes. The script is a no-op unless a Thursday-5pm-ET or
+  Sunday-10am-ET send window is due, so this is cheap. If the Mac is asleep at
+  the deadline, launchd runs it once on wake and the email still goes out
+  (as long as the games haven't kicked off yet).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ffball.startsit</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__HOME__/fantasy-football/bin/run-scheduled.sh</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>600</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/fantasy-football/logs/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/fantasy-football/logs/launchd.err.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>__HOME__/fantasy-football</string>
+</dict>
+</plist>
