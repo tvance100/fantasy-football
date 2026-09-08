@@ -378,7 +378,9 @@ def load_shared_data(season: int, week: int, stats_season: int | None = None) ->
         form=_safe(_build_form, picked_stats_season, week),
         dvp=_safe(_build_dvp, picked_stats_season),
         snaps=_safe(_build_snaps, picked_stats_season),
-        injuries=_safe(_build_injuries, season) or _safe(_build_injuries, season - 1),
+        # No prior-season fallback: last year's final injury statuses are
+        # misleading in the preseason. ESPN's live injuryStatus still applies.
+        injuries=_safe(_build_injuries, season),
         weather=weather,
         matchups=matchups,
         espn_id_to_name=_safe(_build_id_map),

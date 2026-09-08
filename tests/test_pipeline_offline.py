@@ -105,6 +105,39 @@ def test_windowed_report_scopes_and_locks():
     assert "Send by" in doc
 
 
+def test_dst_uses_espn_projection_not_zero():
+    # ESPN's D/ST projected_breakdown uses defensive stat keys our scoring
+    # engine doesn't score -- we must fall back to ESPN's number, not 0.
+    sd = SharedData(season=2025, stats_season=2024, week=10)
+    cfg = LeagueConfig(league_id="1", team_id=1, league_name="L")
+    cfg.scoring_format = PPR_FORMAT
+    dst = RosteredPlayer(
+        name="Ravens D/ST", player_id=0, position="D/ST", pro_team="BAL",
+        eligible_slots=["D/ST"], current_slot="D/ST", injury_status="ACTIVE",
+        pro_opponent="None", on_bye=False, espn_proj_points=9.0,
+        proj_breakdown={"defensiveInterceptions": 1.0, "defensiveSacks": 2.5},
+    )
+    ld = LeagueData(config=cfg, week=10, roster=[dst], starting_slot_counts={"D/ST": 1})
+    proj = project_roster(ld, sd)[0]
+    assert proj.our_points == 9.0
+    assert proj.opponent == "—"  # "None" string is cleaned to em dash
+
+
+def test_opponent_resolved_from_schedule_not_stale_espn_field():
+    from datetime import datetime
+
+    from ffball.slate import ET, Game
+
+    sd = SharedData(season=2025, stats_season=2024, week=10)
+    sd.matchups = {"KC": {"opp": "BUF", "home": True}, "BUF": {"opp": "KC", "home": False}}
+    sd.games = [Game("KC", "BUF", datetime(2025, 11, 9, 20, 20, tzinfo=ET), "Sunday", "REG")]
+    ld = _make_league()
+    ld.roster[0].pro_team = "KC"
+    ld.roster[0].pro_opponent = "None"  # stale/missing on ESPN's side
+    proj = next(p for p in project_roster(ld, sd) if p.pro_team == "KC")
+    assert proj.opponent == "BUF"
+
+
 def test_bye_player_not_started():
     sd = SharedData(season=2025, stats_season=2024, week=10)
     ld = _make_league()

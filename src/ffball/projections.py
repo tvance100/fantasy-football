@@ -69,6 +69,7 @@ def project_player(rp, cfg: LeagueConfig, sd: SharedData) -> PlayerProjection:
     factors: dict[str, float] = {}
     flags: list[str] = []
     kickoff = sd.kickoff(rp.pro_team)
+    opp = _opp_team(rp, sd)  # resolved from the schedule, not ESPN's stale field
 
     # ---- bye week ----
     if rp.on_bye or (not rp.pro_opponent and rp.position != "D/ST" and not breakdown):
@@ -90,13 +91,13 @@ def project_player(rp, cfg: LeagueConfig, sd: SharedData) -> PlayerProjection:
             flags.append(f"{arrow}: {form['recent_ppg']} last-3 vs {form['season_ppg']} avg")
 
     # ---- defense vs position ----
-    dvp = sd.dvp.get((pos, _opp_team(rp, sd)))
+    dvp = sd.dvp.get((pos, opp))
     if dvp:
         factors["dvp"] = dvp["mult"]
         if dvp["rank"] <= max(4, dvp["of"] // 8):
-            flags.append(f"plus matchup: {rp.pro_opponent} allows {dvp['ppg_allowed']}/g to {pos} (#{dvp['rank']} softest)")
+            flags.append(f"plus matchup: {opp} allows {dvp['ppg_allowed']}/g to {pos} (#{dvp['rank']} softest)")
         elif dvp["rank"] >= dvp["of"] - max(3, dvp["of"] // 8):
-            flags.append(f"tough matchup: {rp.pro_opponent} allows {dvp['ppg_allowed']}/g to {pos} (#{dvp['rank']})")
+            flags.append(f"tough matchup: {opp} allows {dvp['ppg_allowed']}/g to {pos} (#{dvp['rank']})")
 
     # ---- weather ----
     wx = sd.player_weather(rp.pro_team)
@@ -136,14 +137,19 @@ def project_player(rp, cfg: LeagueConfig, sd: SharedData) -> PlayerProjection:
             breakdown[k] = float(breakdown[k]) * td_mult
     breakdown = {k: v * inj_factor for k, v in breakdown.items()}
 
-    our_points, per_item, warns = score_stat_line(breakdown, cfg.scoring_format)
-    for w in warns:
-        if w not in flags:
-            flags.append(w)
+    our_points, per_item, _warns = score_stat_line(breakdown, cfg.scoring_format)
 
+    # D/ST and K stat lines don't project cleanly from ESPN's breakdown
+    # (defensive buckets, FG distance splits) -- trust ESPN's number, nudged
+    # only by weather (wind kills kickers) and matchup.
+    if pos in ("D/ST", "K"):
+        our_points = round(
+            rp.espn_proj_points * _prod(wx_vol, factors.get("dvp", 1), inj_factor), 2
+        )
+        per_item = {}
     # If ESPN gave no stat breakdown (common in the preseason), fall back to
     # scaling ESPN's own point projection by the same factors.
-    if not rp.proj_breakdown:
+    elif not rp.proj_breakdown:
         our_points = round(rp.espn_proj_points * _prod(vol_mult, inj_factor), 2)
         per_item = {}
 
@@ -151,7 +157,7 @@ def project_player(rp, cfg: LeagueConfig, sd: SharedData) -> PlayerProjection:
         name=rp.name,
         position=pos,
         pro_team=rp.pro_team,
-        opponent=rp.pro_opponent or "BYE",
+        opponent=opp or ("BYE" if rp.on_bye else "—"),
         current_slot=rp.current_slot,
         eligible_slots=rp.eligible_slots,
         on_bye=rp.on_bye,
@@ -171,7 +177,10 @@ def project_roster(league_data, sd: SharedData) -> list[PlayerProjection]:
 
 def _opp_team(rp, sd: SharedData) -> str:
     m = sd.matchups.get(rp.pro_team)
-    return m["opp"] if m else rp.pro_opponent
+    if m:
+        return m["opp"]
+    o = (rp.pro_opponent or "").strip()
+    return "" if o in ("", "None") else o
 
 
 def _home_team(rp, sd: SharedData) -> str:

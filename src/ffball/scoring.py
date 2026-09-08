@@ -22,6 +22,16 @@ KNOWN_KEYS = set(STAT_ID_TO_KEY.values()) | {
     "passingYards", "rushingYards", "receivingYards",
 }
 
+# Scoring items that are real but near-zero expected value for a weekly
+# projection (return TDs, special-teams TDs, defensive/misc buckets). We
+# knowingly skip these without a warning -- projecting them adds noise, not signal.
+SILENTLY_SKIPPED = {
+    62, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105,
+    106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120,
+    121, 122, 123, 124, 125, 126, 127, 187, 188, 189, 190, 191, 192, 193, 194,
+    195, 196, 197, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213,
+}
+
 
 def score_stat_line(
     stat_line: dict[str, float],
@@ -53,6 +63,9 @@ def score_stat_line(
             val = _milestone_expectation(sl.get(src, 0), threshold) * pts
             if val:
                 per_item[abbr] = per_item.get(abbr, 0) + val
+            continue
+
+        if sid in SILENTLY_SKIPPED:
             continue
 
         key = STAT_ID_TO_KEY.get(sid)
