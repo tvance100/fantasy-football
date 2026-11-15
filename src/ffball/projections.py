@@ -23,6 +23,10 @@ _VOLUME_KEYS = {
 }
 _TD_KEYS = {"passingTouchdowns", "rushingTouchdowns", "receivingTouchdowns"}
 
+# Bump when projection logic or its constants change, so logged predictions can
+# be compared across model versions (see tracking.py / evaluate.py).
+MODEL_VERSION = "v1-hand-tuned"
+
 _OUT_STATUSES = {"OUT", "IR", "INJURY_RESERVE", "SUSPENSION", "SUSPENDED", "PUP", "NFI", "DOUBTFUL"}
 _Q_STATUSES = {"QUESTIONABLE", "GTD", "DAY_TO_DAY"}
 
@@ -43,6 +47,10 @@ class PlayerProjection:
     flags: list[str] = field(default_factory=list)  # human-readable callouts
     scoring_breakdown: dict = field(default_factory=dict)
     kickoff: object = None                          # tz-aware datetime | None
+    # Added for tracking/evaluation (defaults keep older callers working):
+    player_id: int = 0
+    stat_line: dict = field(default_factory=dict)       # our adjusted stat projection
+    espn_stat_line: dict = field(default_factory=dict)  # ESPN's raw stat projection
 
 
 def _match_name(rp_name: str, player_id: int, sd: SharedData) -> str:
@@ -79,6 +87,7 @@ def project_player(rp, cfg: LeagueConfig, sd: SharedData) -> PlayerProjection:
                 rp.name, pos, rp.pro_team, "BYE", rp.current_slot,
                 rp.eligible_slots, True, rp.espn_proj_points, 0.0,
                 -rp.espn_proj_points, {"bye": 0.0}, flags, {}, None,
+                player_id=rp.player_id,
             )
 
     # ---- recent form ----
@@ -168,6 +177,9 @@ def project_player(rp, cfg: LeagueConfig, sd: SharedData) -> PlayerProjection:
         flags=flags,
         scoring_breakdown=per_item,
         kickoff=kickoff,
+        player_id=rp.player_id,
+        stat_line=dict(breakdown),
+        espn_stat_line=dict(rp.proj_breakdown),
     )
 
 

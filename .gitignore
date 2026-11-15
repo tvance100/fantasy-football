@@ -8,4 +8,7 @@ reports/
 .DS_Store
 .pytest_cache/
 logs/
-.state/
+.state/_to_delete/
+.backup_*/
+.claude_*
+DISABLE_LOCAL_SCHEDULER

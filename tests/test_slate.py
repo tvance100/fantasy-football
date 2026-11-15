@@ -22,7 +22,7 @@ def _windows_from(games, now):
         slate._games_for_week = orig
 
 
-def test_thursday_and_sunday_windows():
+def test_one_window_per_game_day():
     games = [
         _g("BUF", "MIA", datetime(2025, 9, 18, 20, 15)),   # Thu night
         _g("CAR", "ATL", datetime(2025, 9, 21, 13, 0)),    # Sun early
@@ -30,17 +30,17 @@ def test_thursday_and_sunday_windows():
         _g("BAL", "DET", datetime(2025, 9, 22, 20, 15)),   # MNF
     ]
     ws = {w.key: w for w in _windows_from(games, datetime(2025, 9, 17, 9, 0))}
-    assert set(ws) == {"pre_weekend", "sunday"}
+    assert list(ws) == ["thursday", "sunday", "monday"]
 
-    # Thursday email must be out by Thursday 5:00pm ET
-    pre = ws["pre_weekend"]
-    assert pre.deadline == datetime(2025, 9, 18, 17, 0, tzinfo=ET)
-    assert pre.teams == {"BUF", "MIA"}
+    assert ws["thursday"].deadline == datetime(2025, 9, 18, 17, 0, tzinfo=ET)
+    assert ws["thursday"].teams == {"BUF", "MIA"}
 
-    # Sunday email by Sunday 10:00am ET, and it covers MNF too
-    sun = ws["sunday"]
-    assert sun.deadline == datetime(2025, 9, 21, 10, 0, tzinfo=ET)
-    assert "BAL" in sun.teams and "DET" in sun.teams
+    assert ws["sunday"].deadline == datetime(2025, 9, 21, 10, 0, tzinfo=ET)
+    assert ws["sunday"].teams == {"CAR", "ATL", "NYG", "KC"}
+
+    # Monday now gets its own email, by 5pm ET Monday
+    assert ws["monday"].deadline == datetime(2025, 9, 22, 17, 0, tzinfo=ET)
+    assert ws["monday"].teams == {"BAL", "DET"}
 
 
 def test_early_london_game_pulls_sunday_deadline_earlier():
@@ -50,24 +50,53 @@ def test_early_london_game_pulls_sunday_deadline_earlier():
         _g("CAR", "NO", datetime(2025, 9, 21, 13, 0)),
     ]
     ws = {w.key: w for w in _windows_from(games, datetime(2025, 9, 17, 9, 0))}
-    # 90 min before 9:30am kickoff = 8:00am, earlier than the 10:00am default
     assert ws["sunday"].deadline == datetime(2025, 9, 21, 8, 0, tzinfo=ET)
 
 
-def test_wednesday_opener_is_not_dropped():
+def test_wednesday_opener_gets_its_own_email():
     games = [
         _g("KC", "BAL", datetime(2025, 9, 3, 20, 20)),     # Wed opener
         _g("PHI", "GB", datetime(2025, 9, 7, 13, 0)),      # Sun
     ]
     ws = {w.key: w for w in _windows_from(games, datetime(2025, 9, 1, 9, 0))}
-    assert "KC" in ws["pre_weekend"].teams
-    assert ws["pre_weekend"].deadline == datetime(2025, 9, 3, 17, 0, tzinfo=ET)
+    assert set(ws) == {"wednesday", "sunday"}
+    assert ws["wednesday"].teams == {"KC", "BAL"}
+    assert ws["wednesday"].deadline == datetime(2025, 9, 3, 17, 0, tzinfo=ET)
 
 
-def test_no_pre_weekend_window_when_all_sunday():
+def test_late_season_saturday_and_christmas_games():
+    games = [
+        _g("DEN", "KC", datetime(2025, 12, 20, 13, 0)),    # Sat 1pm
+        _g("LAR", "SEA", datetime(2025, 12, 20, 20, 0)),   # Sat night
+        _g("PHI", "WAS", datetime(2025, 12, 21, 13, 0)),   # Sun
+        _g("DAL", "NYG", datetime(2025, 12, 25, 13, 0)),   # Christmas Thu
+    ]
+    ws = {w.key: w for w in _windows_from(games, datetime(2025, 12, 18, 9, 0))}
+    assert list(ws) == ["saturday", "sunday", "thursday"]
+    # 2h before the 1pm Saturday kickoff beats the 5pm default
+    assert ws["saturday"].deadline == datetime(2025, 12, 20, 11, 0, tzinfo=ET)
+    assert ws["saturday"].teams == {"DEN", "KC", "LAR", "SEA"}
+    assert ws["thursday"].deadline == datetime(2025, 12, 25, 11, 0, tzinfo=ET)
+
+
+def test_only_sunday_games():
     games = [_g("PHI", "GB", datetime(2025, 9, 7, 13, 0))]
     ws = {w.key: w for w in _windows_from(games, datetime(2025, 9, 1, 9, 0))}
     assert set(ws) == {"sunday"}
+
+
+def test_legacy_state_from_two_email_schedule():
+    from ffball.slate import legacy_sent_keys
+
+    games = [
+        _g("BUF", "MIA", datetime(2025, 9, 18, 20, 15)),
+        _g("CAR", "ATL", datetime(2025, 9, 21, 13, 0)),
+        _g("BAL", "DET", datetime(2025, 9, 22, 20, 15)),
+    ]
+    ws = _windows_from(games, datetime(2025, 9, 17, 9, 0))
+    assert legacy_sent_keys({"pre_weekend"}, ws) == {"pre_weekend", "thursday"}
+    # old "sunday" covered Monday too, but Monday now gets its own email
+    assert "monday" not in legacy_sent_keys({"pre_weekend", "sunday"}, ws)
 
 
 def test_lock_label():

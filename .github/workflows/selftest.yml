@@ -1,0 +1,48 @@
+name: Cloud self-test
+
+# Checks the NFL schedule, ESPN rosters and the Gmail login. Sends no email.
+# Runs when ops/selftest-request.txt changes, or by hand.
+on:
+  push:
+    branches: [main]
+    paths: [ops/selftest-request.txt]
+  workflow_dispatch:
+
+concurrency:
+  group: startsit
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TZ: America/New_York
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Write .env from secret
+        env:
+          DOTENV: ${{ secrets.DOTENV }}
+        run: printf '%s\n' "$DOTENV" > .env
+      - name: Install
+        run: uv sync --frozen
+      - name: Self-test
+        run: uv run python ops/selftest.py
+      - name: Save result
+        if: always()
+        run: |
+          rm -f .env
+          if [ ! -f ops/selftest-result.txt ]; then echo "Self-test FAIL: did not run (see Actions log)" > ops/selftest-result.txt; fi
+          git config user.name "startsit-bot"
+          git config user.email "startsit-bot@users.noreply.github.com"
+          git add ops/selftest-result.txt
+          git commit -m "Self-test result [skip ci]" || exit 0
+          git pull --rebase
+          git push

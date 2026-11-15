@@ -1,13 +1,16 @@
 """NFL game-day awareness: kickoff times, slates, and send windows.
 
-The tool sends up to two emails per NFL week:
+The tool sends one email for every day that has an NFL game, read from the
+actual NFL schedule (Thursday, Sunday and Monday most weeks, plus Wednesday,
+Friday, Saturday, Tuesday or holiday games whenever the schedule has them).
+Each day's email covers only the players whose games are that day.
 
-  * "pre-weekend"  — covers Thu / Fri / Sat games.
-                     Deadline = earlier of {5:00pm ET on the game's day}
-                     and {2h before the earliest of those kickoffs}.
-  * "sunday"       — covers Sun / Mon games.
-                     Deadline = earlier of {10:00am ET Sunday}
-                     and {90m before the earliest Sunday kickoff}.
+  * Sunday         — deadline = earlier of {10:00am ET} and
+                     {90m before the first Sunday kickoff} (London/early games).
+  * any other day  — deadline = earlier of {5:00pm ET that day} and
+                     {2h before that day's first kickoff}.
+
+Window keys are lowercase day names ("thursday", "sunday", "monday", ...).
 
 A scheduled run (`run.py --scheduled`) sends a window's email once, on the last
 poll before its deadline, and never twice (state in .state/).
@@ -40,7 +43,7 @@ class Game:
 
 @dataclass
 class SendWindow:
-    key: str                    # "pre_weekend" | "sunday"
+    key: str                    # lowercase ET day name: "thursday", "sunday", "monday", ...
     label: str
     deadline: datetime          # tz-aware ET — email should arrive before this
     games: list[Game] = field(default_factory=list)
@@ -97,43 +100,49 @@ def current_nfl_week(season: int, now: datetime | None = None) -> int:
     return int(sched["week"].max()) if not sched.empty else 1
 
 
-def build_send_windows(season: int, week: int, now: datetime | None = None) -> list[SendWindow]:
-    """Split a week's games at the Sunday-00:00-ET boundary into two send windows.
+DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+WINDOW_CHOICES = DAY_KEYS + ["pre_weekend"]   # pre_weekend: legacy alias, see below
 
-    * pre_weekend: everything before Sunday (Wed/Thu/Fri/Sat openers all land here)
-    * sunday:      Sunday + Monday (+ any rare Tuesday)
-    """
+
+def legacy_sent_keys(sent: set[str], windows: list["SendWindow"]) -> set[str]:
+    """Translate send-state written by the old two-email schedule.
+
+    The old "pre_weekend" email covered every game before Sunday, and the old
+    "sunday" email covered Sunday and Monday. Pre-Sunday days are treated as sent
+    when "pre_weekend" was sent. Monday is deliberately NOT inherited from "sunday":
+    Monday games now get their own, fresher email."""
+    out = set(sent)
+    if "pre_weekend" in sent:
+        out |= {w.key for w in windows if w.key not in ("sunday", "monday", "tuesday")}
+    return out
+
+
+def build_send_windows(season: int, week: int, now: datetime | None = None) -> list[SendWindow]:
+    """One send window per ET calendar day that has at least one game this week."""
     now = now or datetime.now(ET)
     games = _games_for_week(season, week)
     if not games:
         return []
 
-    earliest = min(g.kickoff for g in games)
-    days_to_sunday = (6 - earliest.astimezone(ET).weekday()) % 7
-    sunday_start = (earliest.astimezone(ET) + timedelta(days=days_to_sunday)).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
+    by_day: dict = {}
+    for g in games:
+        by_day.setdefault(g.kickoff.astimezone(ET).date(), []).append(g)
 
-    pre = [g for g in games if g.kickoff < sunday_start]
-    sun = [g for g in games if g.kickoff >= sunday_start]
     windows: list[SendWindow] = []
-
-    if pre:
-        first = min(g.kickoff for g in pre).astimezone(ET)
-        deadline = min(
-            first.replace(hour=17, minute=0, second=0, microsecond=0),
-            first - timedelta(hours=2),
-        )
-        windows.append(SendWindow("pre_weekend", _slate_label(pre), deadline, pre))
-
-    if sun:
-        first = min(g.kickoff for g in sun)
-        deadline = min(
-            sunday_start.replace(hour=10),
-            first - timedelta(minutes=90),
-        )
-        windows.append(SendWindow("sunday", _slate_label(sun), deadline, sun))
-
+    for day in sorted(by_day):
+        day_games = sorted(by_day[day], key=lambda g: g.kickoff)
+        first = day_games[0].kickoff.astimezone(ET)
+        key = DAY_KEYS[first.weekday()]
+        if key == "sunday":
+            deadline = min(first.replace(hour=10, minute=0, second=0, microsecond=0),
+                           first - timedelta(minutes=90))
+        else:
+            deadline = min(first.replace(hour=17, minute=0, second=0, microsecond=0),
+                           first - timedelta(hours=2))
+        # A week never has the same weekday twice, but guard anyway.
+        if any(w.key == key for w in windows):
+            key = f"{key}_{first:%m%d}"
+        windows.append(SendWindow(key, _slate_label(day_games), deadline, day_games))
     return windows
 
 
