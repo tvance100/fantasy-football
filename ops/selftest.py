@@ -45,6 +45,18 @@ def _settings():
 
 
 check("settings", _settings)
+
+
+def _env_shape():
+    import os
+    env = ROOT / ".env"
+    text = env.read_text() if env.exists() else ""
+    keys = [l.split("=", 1)[0] for l in text.splitlines() if "=" in l and not l.lstrip().startswith("#")]
+    return (f".env has {len(text.splitlines())} lines, keys: {', '.join(keys)}; "
+            f"ESPN_S2 length {len(os.getenv('ESPN_S2') or '')}, ESPN_SWID length {len(os.getenv('ESPN_SWID') or '')}")
+
+
+check("secret contents (lengths only)", _env_shape)
 if settings:
     week = settings.week or current_nfl_week(settings.season, now)
 
