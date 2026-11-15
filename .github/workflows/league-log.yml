@@ -1,0 +1,58 @@
+name: League-wide snapshot (manual)
+
+# Logs a league-wide projection snapshot (every roster, both leagues) for this
+# week's remaining game days. Sends no email. Scheduled runs already do this
+# automatically each time a game-day email goes out; this is for one-off runs.
+# Runs when ops/league-log-request.txt changes, or by hand.
+on:
+  push:
+    branches: [main]
+    paths: [ops/league-log-request.txt]
+  workflow_dispatch:
+
+concurrency:
+  group: startsit
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: America/New_York
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Restore data cache
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: ffcache-${{ github.run_id }}
+          restore-keys: ffcache-
+      - name: Write .env from secret
+        env:
+          DOTENV: ${{ secrets.DOTENV }}
+        run: printf '%s\n' "$DOTENV" > .env
+      - name: Install
+        run: uv sync --frozen
+      - name: Snapshot
+        run: |
+          set -o pipefail
+          uv run python run.py --log-league 2>&1 | tee /tmp/out.txt
+      - name: Save state and result
+        if: always()
+        run: |
+          rm -f .env
+          { echo "League-wide snapshot $(date '+%Y-%m-%d %H:%M %Z')"; grep -E "league-wide|League-wide|Week|No games|Error|error|failed" /tmp/out.txt | tail -20; } > ops/league-log-result.txt || true
+          git config user.name "startsit-bot"
+          git config user.email "startsit-bot@users.noreply.github.com"
+          git add .state ops/league-log-result.txt
+          git commit -m "League-wide snapshot [skip ci]" || exit 0
+          git pull --rebase
+          git push

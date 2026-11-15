@@ -411,9 +411,39 @@ def _pct(x) -> str:
     return f"{x:.0%}" if x is not None else "-"
 
 
+def league_wide_section(lw_rows: list[dict], week: int) -> list[str]:
+    """Same accuracy checks, run on every roster in both leagues."""
+    L: list[str] = []
+    g = gradable(lw_rows)
+    if not g:
+        return L
+    weeks = sorted({r["week"] for r in g})
+    L.append(f"LEAGUE-WIDE CHECK (every roster in both leagues; weeks {weeks[0]}-{weeks[-1]}; "
+             f"{len(g)} graded projections)")
+    L.append("  Bigger sample for judging the model. Your own lineup results above are unaffected.")
+    L.append(f"{'Pos':<6}{'n':>5}{'MAE ours':>10}{'MAE ESPN':>10}{'bias ours':>11}{'bias ESPN':>11}   ours closer")
+    for m in error_metrics(lw_rows):
+        ci = (f"{_pct(m['closer_pct'])} ({m['closer_ci'][0]:.0%}-{m['closer_ci'][1]:.0%}, "
+              f"{m['ours_closer']}-{m['espn_closer']})") if m["decided"] else "-"
+        L.append(f"{m['pos']:<6}{m['n']:>5}{_f(m['mae_ours'],10)}{_f(m['mae_espn'],10)}"
+                 f"{_f(m['bias_ours'],11)}{_f(m['bias_espn'],11)}   {ci}")
+    rk = ranking_metrics(lw_rows)
+    if rk["pairs"]:
+        L.append(f"  Ranking: ours {_pct(rk['ours_acc'])} of {rk['ours_n']} pairs, "
+                 f"ESPN {_pct(rk['espn_acc'])} of {rk['espn_n']}; where we ordered a pair "
+                 f"differently: ours right {rk['disagree_ours_right']}, ESPN right {rk['disagree_espn_right']}")
+    L.append(f"{'  When we differ from ESPN':<26}{'n':>5}{'actual-ESPN':>13}{'actual-ours':>13}   ours closer")
+    for b in delta_buckets(lw_rows):
+        L.append(f"  {b['label']:<24}{b['n']:>5}{_f(b['actual_minus_espn'],13)}"
+                 f"{_f(b['actual_minus_ours'],13)}   {b['ours_closer']}-{b['espn_closer']}")
+    L.append("")
+    return L
+
+
 def build_report(season: int, week: int, week_rows: list[dict], all_rows: list[dict],
                  lineups: list[dict], weeks_covered: list[int],
-                 season_lineups: list[dict] | None = None) -> str:
+                 season_lineups: list[dict] | None = None,
+                 lw_rows: list[dict] | None = None) -> str:
     L: list[str] = []
     n_all = len(gradable(all_rows))
     wk_span = f"{min(weeks_covered)}-{max(weeks_covered)}" if weeks_covered else "-"
@@ -510,6 +540,10 @@ def build_report(season: int, week: int, week_rows: list[dict], all_rows: list[d
     L.append("  if 'actual-ours' is near 0, the adjustment was right.")
     L.append("")
 
+    # ---- league-wide ----
+    if lw_rows:
+        L += league_wide_section(lw_rows, week)
+
     # ---- misses ----
     L.append(f"BIGGEST MISSES, WEEK {week} (ours vs actual)")
     for r in biggest_misses(week_rows):
@@ -545,6 +579,16 @@ def run_evaluate(settings, conn, season: int, week: int | None, current_week: in
                                          if w < current_week]
         for w in todo:
             fetch_actuals(settings, conn, season, w)
+        try:
+            from . import league_wide
+
+            conn.executescript(league_wide.LW_SCHEMA)
+            if explicit:
+                league_wide.fetch_actuals(settings, conn, season, week)
+            else:
+                league_wide.fetch_missing(settings, conn, season, current_week)
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! league-wide actuals failed: {e.__class__.__name__}: {e}")
 
     graded_weeks = [w for w in tracking.logged_weeks(conn, season)
                     if conn.execute("SELECT 1 FROM actuals WHERE season=? AND week=? LIMIT 1",
@@ -573,7 +617,15 @@ def run_evaluate(settings, conn, season: int, week: int | None, current_week: in
     for w in use:
         season_lineups += lineup_comparison(conn, season, w)
     lineups = [lu for lu in season_lineups if lu["week"] == target]
-    text = build_report(season, target, week_rows, all_rows, lineups, use, season_lineups)
+    lw_rows: list[dict] = []
+    try:
+        from . import league_wide
+
+        conn.executescript(league_wide.LW_SCHEMA)
+        lw_rows = league_wide.season_rows(conn, season, target)
+    except Exception as e:  # noqa: BLE001
+        print(f"  ! league-wide grading failed: {e.__class__.__name__}: {e}")
+    text = build_report(season, target, week_rows, all_rows, lineups, use, season_lineups, lw_rows)
     print(text)
 
     REPORT_DIR.mkdir(exist_ok=True)

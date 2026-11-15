@@ -82,6 +82,37 @@ def _log_predictions(season, week, window, now, collected) -> None:
         print(f"  ! prediction logging failed: {e.__class__.__name__}: {e}")
 
 
+def _log_league_wide(settings, sd, season, week, window, now) -> None:
+    """Log every roster in both leagues for grading. Never allowed to break sending."""
+    try:
+        from . import league_wide
+
+        n = league_wide.snapshot(settings, sd, season, week, window, now)
+        print(f"  League-wide log: {n} player projections")
+    except Exception as e:  # noqa: BLE001
+        print(f"  ! league-wide logging failed: {e.__class__.__name__}: {e}")
+
+
+def run_log_league(week_override: int | None) -> int:
+    """Log a league-wide snapshot right now for every game day still to come this week."""
+    from .slate import build_send_windows
+
+    settings = load_settings()
+    season = settings.season
+    now = datetime.now(ET)
+    week = week_override or settings.week or current_nfl_week(season, now)
+    windows = [w for w in build_send_windows(season, week, now)
+               if any(g.kickoff > now for g in w.games)]
+    if not windows:
+        print("No games left to kick off this week.")
+        return 0
+    sd = load_shared_data(season, week, settings.stats_season)
+    for w in windows:
+        print(f"Week {week} · {w.key}:")
+        _log_league_wide(settings, sd, season, week, w, now)
+    return 0
+
+
 def _build_sections(settings, sd, week, window, now=None, collect=None):
     """Return (html_sections, text_sections, any_roster).
 
@@ -199,6 +230,7 @@ def run(scheduled: bool, week_override: int | None, force: bool,
             _deliver(settings, sd, week, w, hs, ts)
             if not now_override:
                 _log_predictions(season, week, w, now, collected)
+                _log_league_wide(settings, sd, season, week, w, now)
         return 0
 
     # ---- manual: report now ----
@@ -276,6 +308,9 @@ def main() -> None:
                     help="manual mode: preview just this game day's email (e.g. thursday, sunday, monday)")
     ap.add_argument("--log", action="store_true",
                     help="manual mode: also record this run's predictions in the tracking log")
+    ap.add_argument("--log-league", action="store_true",
+                    help="log a league-wide projection snapshot (every roster) for this week's "
+                         "remaining game days, then exit; sends no email")
     ap.add_argument("--backfill", action="store_true",
                     help="import past ./reports/ emails into the tracking log, then exit")
     ap.add_argument("--evaluate", action="store_true",
@@ -294,6 +329,8 @@ def main() -> None:
     try:
         if args.team_report:
             sys.exit(run_team_report_cmd(args.week, args.email, args.demo))
+        if args.log_league:
+            sys.exit(run_log_league(args.week))
         if args.backfill:
             sys.exit(run_backfill())
         if args.evaluate:

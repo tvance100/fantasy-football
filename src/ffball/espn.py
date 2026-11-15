@@ -77,7 +77,49 @@ def load_league(
     swid,
 ) -> LeagueData:
     league = connect(cfg, season, espn_s2, swid)
+    target_week, slot_counts = _setup_league(league, cfg, week)
 
+    # ---- live roster + per-player projection ----
+    players: list[RosteredPlayer] = []
+    box_players = _load_box_lineup(league, cfg.team_id, target_week)
+    if box_players is not None:
+        players = [_from_box_player(bp, target_week) for bp in box_players]
+    else:
+        players = _from_season_roster(league, cfg, target_week)
+
+    return LeagueData(
+        config=cfg,
+        week=target_week,
+        roster=players,
+        starting_slot_counts=slot_counts,
+    )
+
+
+def load_all_teams(cfg: LeagueConfig, season: int, week: int | None, espn_s2, swid
+                   ) -> dict[int, LeagueData]:
+    """Every team's roster in the league for `week`, keyed by ESPN team_id.
+
+    Built from one box-score pull, so it costs about the same as loading one team.
+    Teams without a matchup that week (e.g. playoff byes) are left out."""
+    league = connect(cfg, season, espn_s2, swid)
+    target_week, slot_counts = _setup_league(league, cfg, week)
+    out: dict[int, LeagueData] = {}
+    for box in league.box_scores(week=target_week):
+        for side in ("home", "away"):
+            team = getattr(box, f"{side}_team", None)
+            tid = getattr(team, "team_id", None)
+            if tid is None:
+                continue
+            lineup = getattr(box, f"{side}_lineup", None) or []
+            out[int(tid)] = LeagueData(
+                config=cfg, week=target_week,
+                roster=[_from_box_player(bp, target_week) for bp in lineup],
+                starting_slot_counts=slot_counts,
+            )
+    return out
+
+
+def _setup_league(league: League, cfg: LeagueConfig, week: int | None) -> tuple[int, dict]:
     target_week = week or getattr(league, "current_week", None) or getattr(league, "nfl_week", 1) or 1
 
     # ---- live scoring rules (never hardcoded) ----
@@ -92,68 +134,62 @@ def load_league(
         p in slot_counts for p in ("DT", "DE", "LB", "DL", "CB", "S", "DB", "DP")
     )
 
-    # ---- live roster + per-player projection ----
-    players: list[RosteredPlayer] = []
-    box_players = _load_box_lineup(league, cfg.team_id, target_week)
-    if box_players is not None:
-        for bp in box_players:
-            proj_pts, breakdown = _extract_projection(bp, target_week)
-            players.append(
-                RosteredPlayer(
-                    name=bp.name,
-                    player_id=bp.playerId,
-                    position=bp.position or (bp.eligibleSlots[0] if bp.eligibleSlots else "?"),
-                    pro_team=bp.proTeam,
-                    eligible_slots=list(bp.eligibleSlots),
-                    current_slot=getattr(bp, "slot_position", "") or "",
-                    injury_status=getattr(bp, "injuryStatus", "") or "ACTIVE",
-                    pro_opponent=getattr(bp, "pro_opponent", "") or "",
-                    on_bye=getattr(bp, "on_bye_week", False),
-                    espn_proj_points=proj_pts,
-                    proj_breakdown=breakdown,
-                    percent_started=getattr(bp, "percent_started", -1.0),
-                )
-            )
-    else:
-        team = next((t for t in league.teams if t.team_id == cfg.team_id), None)
-        if team is None:
-            ids = ", ".join(str(t.team_id) for t in league.teams)
-            raise ValueError(
-                f"team_id {cfg.team_id} not in league {cfg.league_id}. "
-                f"Valid team_id values: {ids}"
-            )
-        if not team.roster:
-            # preseason: the season view sometimes lags; force a roster-week pull
-            try:
-                league.load_roster_week(target_week)
-                team = next(t for t in league.teams if t.team_id == cfg.team_id)
-            except Exception:
-                pass
-        for p in team.roster:
-            proj_pts, breakdown = _extract_projection(p, target_week)
-            players.append(
-                RosteredPlayer(
-                    name=p.name,
-                    player_id=p.playerId,
-                    position=p.position or "?",
-                    pro_team=p.proTeam,
-                    eligible_slots=list(p.eligibleSlots),
-                    current_slot=getattr(p, "lineupSlot", "") or "",
-                    injury_status=getattr(p, "injuryStatus", "") or "ACTIVE",
-                    pro_opponent="",
-                    on_bye=False,
-                    espn_proj_points=proj_pts,
-                    proj_breakdown=breakdown,
-                    percent_started=getattr(p, "percent_started", -1.0),
-                )
-            )
+    return target_week, slot_counts
 
-    return LeagueData(
-        config=cfg,
-        week=target_week,
-        roster=players,
-        starting_slot_counts=slot_counts,
+
+def _from_box_player(bp, week: int) -> RosteredPlayer:
+    proj_pts, breakdown = _extract_projection(bp, week)
+    return RosteredPlayer(
+        name=bp.name,
+        player_id=bp.playerId,
+        position=bp.position or (bp.eligibleSlots[0] if bp.eligibleSlots else "?"),
+        pro_team=bp.proTeam,
+        eligible_slots=list(bp.eligibleSlots),
+        current_slot=getattr(bp, "slot_position", "") or "",
+        injury_status=getattr(bp, "injuryStatus", "") or "ACTIVE",
+        pro_opponent=getattr(bp, "pro_opponent", "") or "",
+        on_bye=getattr(bp, "on_bye_week", False),
+        espn_proj_points=proj_pts,
+        proj_breakdown=breakdown,
+        percent_started=getattr(bp, "percent_started", -1.0),
     )
+
+
+def _from_season_roster(league: League, cfg: LeagueConfig, target_week: int) -> list[RosteredPlayer]:
+    team = next((t for t in league.teams if t.team_id == cfg.team_id), None)
+    if team is None:
+        ids = ", ".join(str(t.team_id) for t in league.teams)
+        raise ValueError(
+            f"team_id {cfg.team_id} not in league {cfg.league_id}. "
+            f"Valid team_id values: {ids}"
+        )
+    if not team.roster:
+        # preseason: the season view sometimes lags; force a roster-week pull
+        try:
+            league.load_roster_week(target_week)
+            team = next(t for t in league.teams if t.team_id == cfg.team_id)
+        except Exception:
+            pass
+    players: list[RosteredPlayer] = []
+    for p in team.roster:
+        proj_pts, breakdown = _extract_projection(p, target_week)
+        players.append(
+            RosteredPlayer(
+                name=p.name,
+                player_id=p.playerId,
+                position=p.position or "?",
+                pro_team=p.proTeam,
+                eligible_slots=list(p.eligibleSlots),
+                current_slot=getattr(p, "lineupSlot", "") or "",
+                injury_status=getattr(p, "injuryStatus", "") or "ACTIVE",
+                pro_opponent="",
+                on_bye=False,
+                espn_proj_points=proj_pts,
+                proj_breakdown=breakdown,
+                percent_started=getattr(p, "percent_started", -1.0),
+            )
+        )
+    return players
 
 
 def _load_box_lineup(league: League, team_id: int, week: int):
