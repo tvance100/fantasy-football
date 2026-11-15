@@ -1,1 +1,6 @@
-Self-test FAIL: did not run (see Actions log)
+Self-test 2026-11-15 09:33 EST: FAIL
+OK    settings: season 2026, 2 league(s), email_enabled=True
+OK    NFL schedule: week 10: thursday by Thu 5:00PM, sunday by Sun 8:00AM, monday by Mon 5:00PM
+FAIL  ESPN More Cowbell: ESPNAccessDenied: espn_s2 and swid are required
+FAIL  ESPN CBFFL: ESPNAccessDenied: espn_s2 and swid are required
+OK    Gmail: login accepted (no email sent)
