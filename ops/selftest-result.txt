@@ -1,5 +1,6 @@
-Self-test 2026-11-15 09:33 EST: FAIL
+Self-test 2026-11-15 09:34 EST: FAIL
 OK    settings: season 2026, 2 league(s), email_enabled=True
+OK    secret contents (lengths only): .env has 28 lines, keys: ESPN_SWID, SEASON, STATS_SEASON, LEAGUE_1_ID, LEAGUE_1_TEAM_ID, LEAGUE_1_NAME, LEAGUE_2_ID, LEAGUE_2_TEAM_ID, LEAGUE_2_NAME, GMAIL_ADDRESS, GMAIL_APP_PASSWORD, EMAIL_TO, EMAIL_ENABLED; ESPN_S2 length 0, ESPN_SWID length 38
 OK    NFL schedule: week 10: thursday by Thu 5:00PM, sunday by Sun 8:00AM, monday by Mon 5:00PM
 FAIL  ESPN More Cowbell: ESPNAccessDenied: espn_s2 and swid are required
 FAIL  ESPN CBFFL: ESPNAccessDenied: espn_s2 and swid are required
