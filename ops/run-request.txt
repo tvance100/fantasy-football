@@ -1,2 +1,2 @@
-Run requested 2026-11-22T15:41:20Z
-args: --force --window sunday
+Change this file to start a send tick now.
+Optional line, e.g.: args: --force --window sunday
