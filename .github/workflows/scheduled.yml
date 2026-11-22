@@ -68,7 +68,21 @@ jobs:
 
       - name: Run scheduled tick
         if: steps.env.outputs.ready == 'true'
-        run: uv run python run.py --scheduled ${{ github.event.inputs.args }}
+        env:
+          DISPATCH_ARGS: ${{ github.event.inputs.args }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          ARGS="$DISPATCH_ARGS"
+          # A push to ops/run-request.txt may carry a line like "args: --force --window sunday".
+          if [ "$EVENT" = "push" ]; then
+            ARGS=$(sed -n 's/^args:[[:space:]]*//p' ops/run-request.txt | head -1)
+          fi
+          # Only plain flags/words are allowed through.
+          if ! printf '%s' "$ARGS" | grep -Eq '^[A-Za-z0-9 _=:./-]*$'; then
+            echo "::error::rejected args: $ARGS"; exit 1
+          fi
+          echo "run.py --scheduled $ARGS"
+          uv run python run.py --scheduled $ARGS
 
       - name: Save send state
         if: always() && steps.env.outputs.ready == 'true'
