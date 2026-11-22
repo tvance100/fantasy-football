@@ -148,3 +148,19 @@ def test_bye_player_not_started():
     lineup = optimize(projs, ld.starting_slot_counts, ld.week)
     qb_starter = next(p for s, p in lineup.starters if s == "QB")
     assert qb_starter.name == "Backup QB"
+
+
+def test_v2_never_projects_above_espn_but_keeps_downgrades():
+    # A soft matchup and a hot streak would push us above ESPN; v2 caps at ESPN.
+    sd = SharedData(season=2025, stats_season=2024, week=10)
+    sd.matchups = {"MIN": {"opp": "DET", "home": True}, "TEN": {"opp": "HOU", "home": True}}
+    sd.dvp = {("WR", "DET"): {"mult": 1.25, "rank": 1, "of": 32, "ppg_allowed": 30.0}}
+    sd.form = {"wr one": {"games": 4, "delta_pct": 0.4, "recent_ppg": 20, "season_ppg": 14}}
+    ld = _make_league()
+    projs = {p.name: p for p in project_roster(ld, sd)}
+    wr = projs["WR One"]
+    assert wr.factors["dvp"] == 1.25 and wr.factors["form"] > 1
+    assert wr.our_points == wr.espn_points  # boost removed
+    hurt = projs["Hurt RB"]
+    assert hurt.our_points < hurt.espn_points  # questionable downgrade kept
+    assert all(p.our_points <= p.espn_points + 1e-9 for p in projs.values())

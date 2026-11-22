@@ -71,3 +71,14 @@ def test_scorecard_section_renders():
     league_wide.store_actuals(conn, 2025, 10, "L1", 1, [_box(f"Player {c}", "WR", 9 + 2 * i) for i, c in enumerate("ABCDEF")])
     text = "\n".join(evaluate.league_wide_section(league_wide.season_rows(conn, 2025, 10), 10))
     assert "LEAGUE-WIDE CHECK" in text and "WR" in text and "6 graded" in text
+
+
+def test_model_version_section_splits_versions():
+    rows = [
+        {"ours": 10, "espn": 9, "actual": 12, "on_bye": False, "complete": True, "position": "WR",
+         "model": "v1-hand-tuned", "provenance": "live"},
+        {"ours": 8, "espn": 9, "actual": 7, "on_bye": False, "complete": True, "position": "WR",
+         "model": "v2-no-raise", "provenance": "live"},
+    ]
+    text = "\n".join(evaluate.model_version_section(rows, []))
+    assert "v1-hand-tuned" in text and "v2-no-raise" in text

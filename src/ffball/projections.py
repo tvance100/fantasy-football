@@ -25,7 +25,7 @@ _TD_KEYS = {"passingTouchdowns", "rushingTouchdowns", "receivingTouchdowns"}
 
 # Bump when projection logic or its constants change, so logged predictions can
 # be compared across model versions (see tracking.py / evaluate.py).
-MODEL_VERSION = "v1-hand-tuned"
+MODEL_VERSION = "v2-no-raise"
 
 _OUT_STATUSES = {"OUT", "IR", "INJURY_RESERVE", "SUSPENSION", "SUSPENDED", "PUP", "NFI", "DOUBTFUL"}
 _Q_STATUSES = {"QUESTIONABLE", "GTD", "DAY_TO_DAY"}
@@ -161,6 +161,14 @@ def project_player(rp, cfg: LeagueConfig, sd: SharedData) -> PlayerProjection:
     elif not rp.proj_breakdown:
         our_points = round(rp.espn_proj_points * _prod(vol_mult, inj_factor), 2)
         per_item = {}
+
+    # v2 (2026-11-22): never project ABOVE ESPN. Through Week 9 the tool's raises
+    # (mostly matchup and recent-form boosts) lost to ESPN 24-10; dropping them
+    # beat ESPN in-sample (MAE 5.12 vs 5.15) and on the league-wide Week 10
+    # sample it wasn't built from (4.85 vs 4.93). Downgrades (injury, tough
+    # matchup, cold form, weather) are kept.
+    if rp.espn_proj_points > 0 and our_points > rp.espn_proj_points:
+        our_points = round(rp.espn_proj_points, 2)
 
     return PlayerProjection(
         name=rp.name,

@@ -231,6 +231,7 @@ def graded_rows(conn, season: int, week: int) -> list[dict]:
             "on_bye": bool(d["on_bye"]) or bool(a["on_bye"]),
             "complete": bool(a["game_complete"]),
             "provenance": "live", "delta": round(ours - espn, 2),
+            "model": d["model_version"] or "v1-hand-tuned",
         })
     return out
 

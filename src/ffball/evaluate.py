@@ -174,6 +174,7 @@ def graded_rows(conn, season: int, week: int) -> list[dict]:
             "on_bye": bool(d["on_bye"]) or bool(a["on_bye"]),
             "complete": bool(a["game_complete"]),
             "provenance": d["provenance"],
+            "model": d["model_version"] or "v1-hand-tuned",
             "eligible_json": d["eligible_json"], "slot": d["rec_slot"],
         })
     for r in out:
@@ -411,6 +412,27 @@ def _pct(x) -> str:
     return f"{x:.0%}" if x is not None else "-"
 
 
+def model_version_section(rows: list[dict], lw_rows: list[dict] | None) -> list[str]:
+    """Accuracy split by model version, so a model change is graded on its own picks."""
+    L: list[str] = []
+    for label, rs in (("your rosters", rows), ("league-wide", lw_rows or [])):
+        g = gradable(rs)
+        versions = sorted({r.get("model") or "v1-hand-tuned" for r in g})
+        if len(versions) < 2 and not any(v != "v1-hand-tuned" for v in versions):
+            continue
+        for v in versions:
+            vr = [r for r in g if (r.get("model") or "v1-hand-tuned") == v]
+            w = sum(abs(r["ours"] - r["actual"]) + 0.05 < abs(r["espn"] - r["actual"]) for r in vr)
+            l = sum(abs(r["espn"] - r["actual"]) + 0.05 < abs(r["ours"] - r["actual"]) for r in vr)
+            mo = sum(abs(r["ours"] - r["actual"]) for r in vr) / len(vr)
+            me = sum(abs(r["espn"] - r["actual"]) for r in vr) / len(vr)
+            L.append(f"  {label:<13} {v:<15} n={len(vr):<5} MAE ours {mo:5.2f} vs ESPN {me:5.2f}   ours closer {w}-{l}")
+    if L:
+        L.insert(0, "BY MODEL VERSION (v2-no-raise from Week 11 Monday: never projects above ESPN)")
+        L.append("")
+    return L
+
+
 def league_wide_section(lw_rows: list[dict], week: int) -> list[str]:
     """Same accuracy checks, run on every roster in both leagues."""
     L: list[str] = []
@@ -539,6 +561,9 @@ def build_report(season: int, week: int, week_rows: list[dict], all_rows: list[d
     L.append("  If 'actual-ESPN' sits near 0 for a bucket where we differ, our adjustment was noise;")
     L.append("  if 'actual-ours' is near 0, the adjustment was right.")
     L.append("")
+
+    # ---- model versions ----
+    L += model_version_section(all_rows, lw_rows)
 
     # ---- league-wide ----
     if lw_rows:
